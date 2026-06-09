@@ -1,0 +1,13 @@
+id,question,language,expected_place,expected_category
+1,How are you?,en,,smalltalk
+2,Where can I see history in Stone Town?,en,Stone Town,heritage
+3,Ni wapi naweza kula chakula cha jioni Zanzibar?,sw,Forodhani Gardens,food
+4,Which beach is good for swimming in north Zanzibar?,en,Nungwi Beach,beach
+5,Nataka kuona kima punju wekundu Zanzibar,sw,Jozani Forest,nature
+6,Tell me about spice tours in Zanzibar,en,Spice Farm Tour,culture
+7,Where can I go for kitesurfing?,en,Paje Beach,beach
+8,Nataka fukwe tulivu karibu na Nungwi,sw,Kendwa Beach,beach
+9,Where can I see giant tortoises near Stone Town?,en,Prison Island,beach
+10,Tell me about wildlife safari in Tanzania,en,Serengeti National Park,nature
+11,Ni mlima gani maarufu Tanzania?,sw,Mount Kilimanjaro,nature
+12,What is the capital city of Tanzania?,en,Dodoma,city

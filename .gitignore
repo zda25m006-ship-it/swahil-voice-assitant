@@ -1,0 +1,68 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.pth
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Environment variables
+.env
+
+# IDE
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Jupyter / IPython
+.ipynb_checkpoints/
+*.ipynb
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Data - generated / downloaded CSVs (keep only seed data)
+data/osm_zanzibar_tourism.csv
+data/osm_tanzania_tourism.csv
+data/geonames_tanzania.csv
+data/undp_zanzibar_attractions.csv
+data/custom_knowledge_base.csv
+data/asr_eval_manifest.csv
+eval_audio/
+
+# Model checkpoints & training outputs
+whisper-small-swahili-fleurs/
+*.pt
+*.bin
+*.safetensors
+
+# Reports
+report/rag_eval_results.csv
+report/asr_eval_results.csv
+
+# TTS temp files
+*.mp3
+
+# Gradio temp
+gradio_cached_examples/
+flagged/
