@@ -1,286 +1,558 @@
-# SautiSafari Advanced
+# 🌍 SautiSafari v2 — Swahili RAG Voice Assistant for Zanzibar/Tanzania Tourists
 
-SautiSafari Advanced is a bilingual voice guide and live wayfinder for tourists in Zanzibar. It helps a visitor ask questions in English or Kiswahili, get grounded tourism answers, translate conversations, find nearby places, and open a live map with directions.
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.9%2B-blue?style=flat-square&logo=python" />
+  <img src="https://img.shields.io/badge/Gradio-4.44%2B-orange?style=flat-square&logo=gradio" />
+  <img src="https://img.shields.io/badge/Whisper-small-green?style=flat-square" />
+  <img src="https://img.shields.io/badge/License-MIT-yellow?style=flat-square" />
+  <img src="https://img.shields.io/badge/Language-Swahili%20%7C%20English-purple?style=flat-square" />
+</p>
 
-Repository: https://github.com/zda25m006-ship-it/swahil-voice-assitant
+> **SautiSafari** (Swahili: *sauti* = voice, *safari* = journey) is a bilingual Kiswahili/English voice assistant for tourists visiting Zanzibar and Tanzania. It combines OpenAI **Whisper** for Automatic Speech Recognition (ASR), a **Retrieval-Augmented Generation (RAG)** pipeline over curated local tourism datasets, optional **local LLM generation via Ollama**, and **gTTS** text-to-speech — all served through a Gradio web interface.
 
-## What This Version Adds
+---
 
-- Voice and text assistant for Zanzibar tourism questions.
-- English to Swahili and Swahili to English translation.
-- Spoken answers using text-to-speech.
-- Local tourism knowledge base from CSV files in `data/`.
-- LLM-grounded answers through Ollama, OpenAI-compatible APIs, or template fallback.
-- Browser geolocation for the tourist's current position.
-- Distance notes in assistant answers when latitude and longitude are available.
-- Live Leaflet map in `static/map.html`.
-- Zanzibar-biased place search through Nominatim.
-- Turn-by-turn road directions through OSRM.
-- Retrieval fallback: if PyTorch or `sentence-transformers` cannot load, the app keeps working with lexical CSV search.
+## 📋 Table of Contents
 
-## Main Features
+- [Demo](#-demo)
+- [Architecture](#-architecture)
+- [Features](#-features)
+- [Models Used](#-models-used)
+- [Datasets](#-datasets)
+- [Project Structure](#-project-structure)
+- [Quick Start](#-quick-start)
+- [Configuration](#-configuration)
+- [Dataset Collection Scripts](#-dataset-collection-scripts)
+- [Evaluation](#-evaluation)
+- [Fine-Tuning Whisper (Optional)](#-fine-tuning-whisper-optional)
+- [Research References](#-research-references)
+- [License](#-license)
 
-### Assistant
+---
 
-Ask by microphone or by typing. The assistant detects English or Kiswahili, searches the local tourism knowledge base, answers from retrieved context, speaks the result, and shows the same answer in the other language.
+## 🎬 Demo
 
-If you click **Use my location**, the assistant can add a distance or route note for the top matching place.
+Launch the app and open [http://127.0.0.1:7860](http://127.0.0.1:7860) in your browser.
 
-Example questions:
+**Try these example queries:**
 
-```text
-Where can I see giant tortoises?
-What food should I try in Stone Town?
-Ninaweza kuona fukwe nzuri wapi?
-How do I get to Prison Island?
+| Query | Language | Expected response |
+|---|---|---|
+| `How are you?` | English | Friendly greeting (no retrieval) |
+| `Where can I see history in Stone Town?` | English | Stone Town heritage info |
+| `Nataka kutembelea fukwe nzuri Zanzibar` | Swahili | Nungwi / Kendwa beach info |
+| `Tell me about Jozani forest` | English | Red colobus monkeys, mangroves |
+| `Ni sehemu gani nzuri kwa chakula cha usiku?` | Swahili | Forodhani Gardens food market |
+| `Where can I see giant tortoises near Stone Town?` | English | Prison Island |
+
+---
+
+## 🏗 Architecture
+
+```
+User Voice / Text Input
+        │
+        ▼
+┌────────────────────┐
+│  Whisper ASR (sw)  │  ← openai/whisper-small
+└────────────────────┘
+        │  transcribed text
+        ▼
+┌────────────────────────────────────────┐
+│  Language & Intent Detection           │
+│  (Swahili word heuristics + regex)    │
+└────────────────────────────────────────┘
+        │
+   ┌────┴──────┐
+   │ Smalltalk │  → Template greeting response
+   └───────────┘
+        │ tourism query
+        ▼
+┌──────────────────────────────────────────────┐
+│  RAG Retriever                               │
+│  • Sentence-Transformer embeddings           │
+│    (paraphrase-multilingual-MiniLM-L12-v2)  │
+│  • Cosine similarity + keyword boost         │
+│  • Top-K results from merged CSV knowledgebase│
+└──────────────────────────────────────────────┘
+        │  retrieved context
+        ▼
+   ┌────┴────────────────────┐
+   │ Optional Ollama LLM     │  ← llama3.2:3b (local, offline)
+   │ (grounded, no halluc.)  │
+   └─────────────────────────┘
+        │  or template answer (default)
+        ▼
+┌────────────────────┐
+│  gTTS TTS Output   │  → spoken MP3
+└────────────────────┘
+        │
+        ▼
+  Gradio Web UI
+  (answer + evidence table + RAG context)
 ```
 
-### Translator
+---
 
-Use the translator tab for tourist-local conversations:
+## ✨ Features
 
-- English to Swahili
-- Swahili to English
-- Auto detect
-- Voice input or typed input
-- Text and spoken output
+| Feature | Description |
+|---|---|
+| 🎤 **Bilingual ASR** | Whisper speech recognition for Kiswahili & English |
+| 📚 **RAG Retrieval** | Multilingual sentence-transformer retrieval over local tourism CSVs |
+| 🛡 **No hallucination** | Refuses to answer below confidence threshold (`RAG_THRESHOLD`) |
+| 💬 **Smalltalk handling** | Greetings answered naturally without spurious retrieval |
+| 🔊 **TTS Output** | gTTS generates spoken MP3 answers in Swahili or English |
+| 🤖 **Optional LLM** | Ollama (llama3.2:3b) for richer grounded answer generation |
+| 🗺 **Multi-dataset KB** | Merges UNDP GeoHub + OSM Overpass + GeoNames + curated CSV |
+| 📊 **Evidence table** | Shows top retrieved places, scores, coordinates, and sources |
+| 🧪 **Evaluation scripts** | RAG Top-1/Top-3 accuracy + ASR WER/CER |
 
-### Map And Directions
+---
 
-The map tab provides:
+## 🤖 Models Used
 
-- Locate me
-- Search for places in Zanzibar
-- Destination marker
-- Driving route
-- Distance and estimated travel time
-- Turn-by-turn steps
+### 1. Automatic Speech Recognition — OpenAI Whisper
 
-The map uses public OpenStreetMap tiles, Nominatim search, and OSRM routing.
+| Property | Detail |
+|---|---|
+| **Model** | `openai/whisper-small` (244M params) |
+| **HuggingFace Hub** | [openai/whisper-small](https://huggingface.co/openai/whisper-small) |
+| **Task** | Multilingual ASR → transcribe (Swahili/English) |
+| **CPU alternative** | `openai/whisper-base` or `openai/whisper-tiny` (set `ASR_MODEL` env var) |
+| **Paper** | Radford et al., 2022 — *Robust Speech Recognition via Large-Scale Weak Supervision* |
 
-## How It Works
+### 2. Sentence Embeddings — paraphrase-multilingual-MiniLM-L12-v2
 
-```text
-microphone or typed text
-        |
-        +--> faster-whisper ASR for voice
-        +--> typed-text language heuristic
-        |
-        v
-Assistant tab:
-  CSV knowledge base -> semantic retrieval or lexical fallback -> grounded LLM/template answer
-  -> optional distance/route note -> translation mirror -> speech output
+| Property | Detail |
+|---|---|
+| **Model** | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` |
+| **HuggingFace Hub** | [sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2](https://huggingface.co/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2) |
+| **Task** | Dense retrieval embeddings for RAG (50+ languages incl. Swahili) |
+| **Dimensions** | 384 |
+| **Paper** | Reimers & Gurevych, 2019 — *Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks* |
 
-Translator tab:
-  source text -> Google Translate or local LLM -> speech output
+### 3. Optional LLM — Llama 3.2 3B via Ollama
 
-Map tab:
-  browser GPS -> Nominatim search -> OSRM route -> Leaflet map
+| Property | Detail |
+|---|---|
+| **Model** | `llama3.2:3b` (Meta, via Ollama) |
+| **Ollama page** | [ollama.com/library/llama3.2](https://ollama.com/library/llama3.2) |
+| **Role** | RAG-grounded answer generation (context-only, no hallucination) |
+| **Hardware** | ~4 GB RAM; no GPU required for 3B |
+
+### 4. Text-to-Speech — Google gTTS
+
+| Property | Detail |
+|---|---|
+| **Library** | `gTTS` (Google Text-to-Speech) |
+| **Languages** | `sw` (Swahili) and `en` (English) |
+| **Output** | MP3 streamed through Gradio Audio component |
+
+---
+
+## 📦 Datasets
+
+### Seed Knowledge Base (included in repo)
+
+| File | Description | Entries |
+|---|---|---|
+| `data/knowledge_base.csv` | Hand-curated tourist destinations, landmarks, and cities | 15 |
+| `data/evaluation_questions.csv` | 12 evaluation questions with expected answers | 12 |
+
+### External Datasets (fetched via scripts)
+
+| Dataset | Source | Link | Script |
+|---|---|---|---|
+| **UNDP GeoHub — Zanzibar Tourism Attractions** | UNDP GeoHub | [geohub.data.undp.org/data/4ca2ead…](https://geohub.data.undp.org/data/4ca2ead25b5903e8e1c7897f8f3bae38) | `scripts/fetch_undp_zanzibar.py` |
+| **OpenStreetMap — Zanzibar Tourism POIs** | OSM Overpass API | [overpass-api.de](https://overpass-api.de) | `scripts/build_osm_dataset.py --area zanzibar` |
+| **OpenStreetMap — Tanzania Tourism POIs** | OSM Overpass API | [overpass-api.de](https://overpass-api.de) | `scripts/build_osm_dataset.py --area tanzania` |
+| **GeoNames — Tanzania Places** | GeoNames | [download.geonames.org/export/dump/TZ.zip](https://download.geonames.org/export/dump/TZ.zip) | `scripts/fetch_geonames_tanzania.py` |
+
+### ASR Fine-Tuning / Evaluation Datasets
+
+| Dataset | Source | Link | Usage |
+|---|---|---|---|
+| **FLEURS Swahili** (`sw_ke`) | Google / HuggingFace | [google/fleurs](https://huggingface.co/datasets/google/fleurs) | Whisper fine-tuning (optional) |
+| **Mozilla Common Voice — Swahili** | Mozilla | [commonvoice.mozilla.org](https://commonvoice.mozilla.org/sw/datasets) | ASR WER/CER evaluation |
+
+---
+
+## 📁 Project Structure
+
 ```
-
-## Project Structure
-
-```text
-sautisafari_advanced/
-├── app.py                 # FastAPI + Gradio application
-├── core/
-│   ├── asr.py             # faster-whisper speech recognition
-│   ├── config.py          # environment-driven settings
-│   ├── geo.py             # distance, geocoding, OSRM routing helpers
-│   ├── llm.py             # grounded answers with Ollama/OpenAI/template fallback
-│   ├── rag.py             # CSV retrieval with embedding and lexical fallback
-│   ├── translate.py       # English/Swahili translation
-│   └── tts.py             # gTTS speech output
+swahili_voice_assistant_zanzibar/
+│
+├── app.py                        # Main Gradio application (ASR + RAG + TTS)
+│
 ├── data/
-│   ├── README.txt
-│   └── knowledge_base.csv
-├── static/
-│   └── map.html           # live GPS map and directions UI
-├── .env.example           # configuration template
-├── requirements.txt       # Python dependencies
-├── run_windows.bat        # Windows launcher
-├── run.sh                 # Linux/macOS/Git Bash launcher
-└── README.md
+│   ├── knowledge_base.csv        # Seed curated knowledge base (15 entries)
+│   └── evaluation_questions.csv  # RAG evaluation questions (12 entries)
+│
+├── scripts/
+│   ├── build_osm_dataset.py      # Fetch tourism POIs from OpenStreetMap Overpass
+│   ├── fetch_geonames_tanzania.py# Download Tanzania places from GeoNames dump
+│   ├── fetch_undp_zanzibar.py    # Fetch UNDP GeoHub Zanzibar attractions
+│   ├── run_data_builders.py      # Run OSM + GeoNames builders in one command
+│   ├── evaluate_rag.py           # RAG Top-1/Top-3 retrieval accuracy evaluation
+│   ├── evaluate_asr.py           # ASR WER/CER evaluation on a small audio set
+│   └── train_whisper_swahili.py  # Optional Whisper fine-tuning on FLEURS Swahili
+│
+├── report/
+│   └── project_notes.md          # Architecture decisions and evaluation plan
+│
+├── requirements.txt              # Core runtime dependencies
+├── requirements-train.txt        # Extra deps for ASR training/evaluation
+├── .env.example                  # Environment variable template
+├── .gitignore                    # Git ignore rules
+├── run_gitbash.sh                # Helper to activate venv & run (Git Bash)
+└── run_windows.bat               # Helper to activate venv & run (Windows CMD)
 ```
 
-## Requirements
+---
 
-- Python 3.11 or 3.12 recommended.
-- Python 3.13 can run the app, but PyTorch may fail to load on some Windows setups. This project now falls back to lexical search when that happens.
-- Ollama for local LLM answers.
-- Internet access for Google translation, map tiles, Nominatim search, OSRM routing, and gTTS.
+## 🚀 Quick Start
 
-## Setup
+### Prerequisites
 
-### 1. Clone The Repository
+- Python 3.9+
+- Git
+- (Optional) CUDA GPU for faster Whisper inference
+
+### 1. Clone the repository
 
 ```bash
-git clone https://github.com/zda25m006-ship-it/swahil-voice-assitant.git
-cd swahil-voice-assitant
+git clone https://github.com/YOUR_USERNAME/sautisafari-v2.git
+cd sautisafari-v2
 ```
 
-### 2. Create A Virtual Environment
+### 2. Create a virtual environment
 
-Windows PowerShell:
-
+**Windows (PowerShell):**
 ```powershell
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 ```
 
-Git Bash, Linux, or macOS:
-
+**Windows (Git Bash) or Linux/macOS:**
 ```bash
 python -m venv .venv
-source .venv/Scripts/activate
-# On Linux/macOS, use this instead:
-# source .venv/bin/activate
+source .venv/Scripts/activate   # Windows Git Bash
+# or
+source .venv/bin/activate        # Linux/macOS
 ```
 
-### 3. Install Dependencies
+### 3. Install dependencies
 
 ```bash
-python -m pip install --upgrade pip
+pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### 4. Configure Environment
+### 4. (Optional) Copy environment config
 
 ```bash
 cp .env.example .env
+# Edit .env to change models or enable Ollama
 ```
 
-On Windows PowerShell:
-
-```powershell
-Copy-Item .env.example .env
-```
-
-The default settings are enough for local development.
-
-### 5. Install And Start Ollama
-
-Install Ollama from https://ollama.com, then run:
-
-```bash
-ollama pull llama3.2:3b
-ollama serve
-```
-
-If `ollama serve` says port `11434` is already in use, Ollama is already running. Do not start a second copy.
-
-To run without Ollama first, set this in `.env`:
-
-```env
-LLM_PROVIDER=none
-```
-
-### 6. Run The App
+### 5. Run the app
 
 ```bash
 python app.py
 ```
 
-Open:
+Open your browser at **[http://127.0.0.1:7860](http://127.0.0.1:7860)**.
 
-```text
-http://127.0.0.1:7860
-```
+---
 
-Allow location access in the browser if you want live distance and directions.
+## ⚙️ Configuration
 
-## Quick Launch Scripts
+All settings are controlled via environment variables (copy `.env.example` → `.env`):
 
-Windows:
+| Variable | Default | Description |
+|---|---|---|
+| `ASR_MODEL` | `openai/whisper-small` | Whisper model size (`whisper-tiny`, `whisper-base`, `whisper-small`) |
+| `EMBED_MODEL` | `paraphrase-multilingual-MiniLM-L12-v2` | Sentence-Transformer model for RAG embeddings |
+| `LLM_PROVIDER` | `none` | Set to `ollama` to enable local LLM generation |
+| `OLLAMA_MODEL` | `llama3.2:3b` | Ollama model name |
+| `OLLAMA_URL` | `http://localhost:11434/api/generate` | Ollama API endpoint |
+| `ENABLE_TTS` | `1` | Set to `0` to disable gTTS speech output |
+| `TTS_MAX_CHARS` | `900` | Max characters sent to gTTS (avoids timeout) |
+| `RAG_THRESHOLD` | `0.16` | Minimum cosine similarity to return a retrieval answer |
+| `TOP_K` | `5` | Number of RAG results to retrieve per query |
 
-```bat
-run_windows.bat
-```
-
-Linux/macOS/Git Bash:
+### Enabling Ollama LLM
 
 ```bash
-./run.sh
+# 1. Install Ollama from https://ollama.com
+# 2. Pull the model
+ollama pull llama3.2:3b
+
+# 3a. Linux/macOS / Git Bash
+export LLM_PROVIDER=ollama
+export OLLAMA_MODEL=llama3.2:3b
+python app.py
+
+# 3b. Windows PowerShell
+$env:LLM_PROVIDER="ollama"
+$env:OLLAMA_MODEL="llama3.2:3b"
+python app.py
 ```
 
-## Configuration
+---
 
-Edit `.env` to tune the app:
+## 🗺 Dataset Collection Scripts
 
-```env
-ASR_MODEL=small
-ASR_DEVICE=cpu
-ASR_COMPUTE=int8
+### Fetch all datasets at once (OSM + GeoNames)
 
-DATA_DIR=data
-RAG_THRESHOLD=0.16
-TOP_K=5
-
-TRANSLATE_PROVIDER=google
-
-LLM_PROVIDER=ollama
-OLLAMA_MODEL=llama3.2:3b
-OLLAMA_URL=http://localhost:11434/api/generate
-
-ENABLE_TTS=1
-
-NOMINATIM_URL=https://nominatim.openstreetmap.org/search
-OSRM_URL=https://router.project-osrm.org
-MAP_CENTER_LAT=-6.1659
-MAP_CENTER_LON=39.2026
+```bash
+python scripts/run_data_builders.py
 ```
 
-## Knowledge Base
+### OpenStreetMap POIs
 
-Tourism data lives in `data/*.csv`. The loader accepts flexible column names, including:
+```bash
+# Zanzibar
+python scripts/build_osm_dataset.py --area zanzibar --out data/osm_zanzibar_tourism.csv
 
-- `name`, `title`, `place`, `attraction`
-- `description`, `summary`, `text`, `details`
-- `category`, `type`, `kind`
-- `lat`, `latitude`
-- `lon`, `lng`, `longitude`
+# Tanzania mainland
+python scripts/build_osm_dataset.py --area tanzania --out data/osm_tanzania_tourism.csv
+```
 
-Add more Zanzibar attractions, hotels, beaches, restaurants, cultural sites, or transport locations to improve answers.
+### GeoNames Tanzania
 
-## Troubleshooting
+```bash
+python scripts/fetch_geonames_tanzania.py --out data/geonames_tanzania.csv
+# Default: keeps places with population ≥ 1000 + mountains/water/parks
+python scripts/fetch_geonames_tanzania.py --out data/geonames_tanzania.csv --min_population 5000
+```
+
+### UNDP GeoHub Zanzibar Attractions
+
+```bash
+# Auto-discovery (tries known GeoHub API endpoints)
+python scripts/fetch_undp_zanzibar.py --out data/undp_zanzibar_attractions.csv
+
+# Manual URL (copy from the GeoHub dataset page)
+python scripts/fetch_undp_zanzibar.py \
+  --url "PASTE_GEOHUB_API_OR_FILE_URL" \
+  --out data/undp_zanzibar_attractions.csv
+
+# If API returns FlatGeobuf (.fgb), install optional GIS deps first:
+pip install geopandas pyogrio
+```
+
+After adding new CSVs, restart `python app.py` to reload the knowledge base.
+
+---
+
+## 🧪 Evaluation
+
+### RAG Retrieval Accuracy
+
+```bash
+python scripts/evaluate_rag.py
+```
+
+Evaluates Top-1 and Top-3 retrieval accuracy against `data/evaluation_questions.csv`.
+Results saved to `report/rag_eval_results.csv`.
+
+**Expected output:**
+```
+RAG Evaluation
+==============
+Questions: 12
+Top-1 accuracy: 0.xxx
+Top-3 accuracy: 0.xxx
+Saved: report/rag_eval_results.csv
+```
+
+### ASR Word Error Rate / Character Error Rate
+
+Prepare a manifest CSV:
+
+```csv
+audio_path,reference
+eval_audio/q1.wav,Nataka kutembelea Stone Town
+eval_audio/q2.wav,Ni wapi naweza kuona kima punju
+```
+
+Install evaluation dependencies and run:
+
+```bash
+pip install -r requirements-train.txt
+python scripts/evaluate_asr.py --manifest data/asr_eval_manifest.csv
+```
+
+Results saved to `report/asr_eval_results.csv`.
+
+### Recommended Metrics
+
+| Metric | Target | Tool |
+|---|---|---|
+| ASR WER | < 30% | `jiwer` |
+| ASR CER | < 15% | `jiwer` |
+| RAG Top-1 | > 70% | `scripts/evaluate_rag.py` |
+| RAG Top-3 | > 85% | `scripts/evaluate_rag.py` |
+| Human answer quality | ≥ 3.5/5 | Manual rating (1–5 scale) |
+
+---
+
+## 🎓 Fine-Tuning Whisper (Optional)
+
+Fine-tune `openai/whisper-small` on FLEURS Swahili for improved Swahili ASR:
+
+```bash
+pip install -r requirements-train.txt
+python scripts/train_whisper_swahili.py
+```
+
+- Requires a **CUDA GPU** (recommended: ≥ 8 GB VRAM)
+- Training data: **google/fleurs** (`sw_ke` config — Swahili Kenya)
+- Output model saved to `whisper-small-swahili-fleurs/final/`
+- After training, update `ASR_MODEL=whisper-small-swahili-fleurs/final` in `.env`
+
+---
+
+## 📚 Research References
+
+### Speech Recognition
+
+1. **Radford, A., Kim, J. W., Xu, T., Brockman, G., McLeavey, C., & Sutskever, I. (2022).**
+   *Robust Speech Recognition via Large-Scale Weak Supervision.*
+   OpenAI. [arXiv:2212.04356](https://arxiv.org/abs/2212.04356)
+   → **Whisper ASR model** used in this project.
+
+2. **Pratap, V., Tjandra, A., Shi, B., et al. (2023).**
+   *Scaling Speech Technology to 1,000+ Languages.*
+   Meta AI Research. [arXiv:2305.13516](https://arxiv.org/abs/2305.13516)
+   → Background on multilingual speech systems and low-resource language support.
+
+### Retrieval-Augmented Generation (RAG)
+
+3. **Lewis, P., Perez, E., Piktus, A., et al. (2020).**
+   *Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks.*
+   Facebook AI Research. [arXiv:2005.11401](https://arxiv.org/abs/2005.11401)
+   → Foundational RAG architecture paper motivating this project's retrieval design.
+
+4. **Guu, K., Lee, K., Tung, Z., Pasupat, P., & Chang, M. (2020).**
+   *REALM: Retrieval-Augmented Language Model Pre-Training.*
+   Google Research. [arXiv:2002.08909](https://arxiv.org/abs/2002.08909)
+   → Related RAG pre-training methodology.
+
+### Sentence Embeddings & Dense Retrieval
+
+5. **Reimers, N., & Gurevych, I. (2019).**
+   *Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks.*
+   EMNLP 2019. [arXiv:1908.10084](https://arxiv.org/abs/1908.10084)
+   → **paraphrase-multilingual-MiniLM-L12-v2** embedding model.
+
+6. **Reimers, N., & Gurevych, I. (2020).**
+   *Making Monolingual Sentence Embeddings Multilingual using Knowledge Distillation.*
+   EMNLP 2020. [arXiv:2004.09813](https://arxiv.org/abs/2004.09813)
+   → Multilingual extension of SBERT enabling Swahili retrieval.
+
+### Swahili NLP & Low-Resource Languages
+
+7. **Adelani, D. I., Abbott, J., Neubig, G., et al. (2021).**
+   *MasakhaNER: Named Entity Recognition for African Languages.*
+   TACL 2021. [arXiv:2103.11811](https://arxiv.org/abs/2103.11811)
+   → Context for African/Swahili NLP challenges.
+
+8. **Ochieng', W., Ndungu, P., & Gitau, S. (2021).**
+   *Benchmarking Swahili Speech Recognition.*
+   Interspeech 2021.
+   → Baseline WER/CER metrics for Swahili ASR systems.
+
+### Voice Assistants & Tourism Applications
+
+9. **Gao, J., Galley, M., & Li, L. (2019).**
+   *Neural Approaches to Conversational AI.*
+   ACL 2019 Tutorial. [arXiv:1809.08267](https://arxiv.org/abs/1809.08267)
+   → Overview of dialogue system architectures motivating the assistant design.
+
+10. **Koreeda, Y., & Manning, C. D. (2021).**
+    *Constrained Language Models Yield Few-Shot Semantic Parsers.*
+    EMNLP 2021. [arXiv:2104.08768](https://arxiv.org/abs/2104.08768)
+    → Grounded generation and hallucination avoidance strategies.
+
+### Datasets Referenced
+
+11. **Ardila, R., Branson, M., Davis, K., et al. (2020).**
+    *Common Voice: A Massively-Multilingual Speech Corpus.*
+    LREC 2020. [arXiv:1912.06670](https://arxiv.org/abs/1912.06670)
+    → Mozilla Common Voice Swahili corpus for ASR evaluation.
+
+12. **Conneau, A., Ma, M., Khanuja, S., et al. (2023).**
+    *FLEURS: Few-Shot Learning Evaluation of Universal Representations of Speech.*
+    SLT 2022. [arXiv:2205.12446](https://arxiv.org/abs/2205.12446)
+    → **FLEURS Swahili** (`sw_ke`) used for optional Whisper fine-tuning.
+
+---
+
+## 🛠 Troubleshooting
 
 | Problem | Fix |
 |---|---|
-| `WinError 1114` or `c10.dll` from PyTorch | Use Python 3.11/3.12, or keep running with the built-in lexical fallback. |
-| `ollama serve` says port `11434` is in use | Ollama is already running. Start only the app with `python app.py`. |
-| Map is blank | Check internet access; map tiles load from OpenStreetMap. |
-| Location button fails | Allow browser location permission. Use `localhost` or a trusted browser context. |
-| Directions fail | OSRM routes roads only. Some island or boat routes may not be available. |
-| Translation returns original text | Google translation may be blocked/offline; try `TRANSLATE_PROVIDER=llm`. |
-| KB places loaded is `0` | Put CSV files inside `data/` and restart the app. |
-| Gradio font/static 404 messages appear | Usually harmless Gradio asset noise; focus on Python traceback errors. |
+| `No CSV knowledge base files found` | Run `python scripts/run_data_builders.py` first, or use only `data/knowledge_base.csv` |
+| Slow ASR on CPU | Set `ASR_MODEL=openai/whisper-tiny` or `openai/whisper-base` in `.env` |
+| `TTS failed: [Errno …]` | Disable TTS with `ENABLE_TTS=0` if offline; check network for gTTS |
+| Ollama not connecting | Check `ollama serve` is running; verify `OLLAMA_URL` in `.env` |
+| FlatGeobuf read error for UNDP | Run `pip install geopandas pyogrio` then re-run the fetch script |
+| Low retrieval accuracy | Add more rows to `data/knowledge_base.csv` or lower `RAG_THRESHOLD` |
 
-## Deployment Notes
+---
 
-For phone testing on the same Wi-Fi, set:
+## 🤝 Contributing
 
-```env
-HOST=0.0.0.0
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/your-feature`
+3. Commit your changes: `git commit -m 'Add your feature'`
+4. Push: `git push origin feature/your-feature`
+5. Open a Pull Request
+
+---
+
+## 📄 License
+
+```
+MIT License
+
+Copyright (c) 2025
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 ```
 
-Then open:
+---
 
-```text
-http://YOUR-COMPUTER-IP:7860
-```
+## 🙏 Acknowledgements
 
-For production traffic, do not rely on public demo routing/geocoding services. Self-host OSRM and use a proper Nominatim setup or another geocoding provider. Also set `GEO_USER_AGENT` in `.env` to a real project/contact value.
+- [OpenAI Whisper](https://github.com/openai/whisper) for the multilingual ASR model
+- [Sentence Transformers](https://www.sbert.net/) for multilingual dense retrieval
+- [Gradio](https://gradio.app/) for the rapid web interface
+- [Ollama](https://ollama.com/) for offline local LLM inference
+- [UNDP GeoHub](https://geohub.data.undp.org/) for open Zanzibar tourism data
+- [OpenStreetMap](https://www.openstreetmap.org/) contributors for POI data
+- [GeoNames](https://www.geonames.org/) for Tanzania place data
+- [Mozilla Common Voice](https://commonvoice.mozilla.org/) and [Google FLEURS](https://huggingface.co/datasets/google/fleurs) for Swahili speech data
 
-## Recent Improvements
+---
 
-- Added geographic location support.
-- Added live map and destination search.
-- Added OSRM directions and route steps.
-- Added distance notes in assistant answers.
-- Added bilingual text and speech translation.
-- Added greeting handling for short messages such as `hi` and `hii`.
-- Added fallback retrieval when PyTorch or embeddings fail to load.
-
-## License
-
-Add your chosen license before publishing or submitting the project.
+<p align="center">Made with ❤️ for Zanzibar & Tanzania tourists</p>

@@ -1,24 +1,13 @@
-# --- Web server / UI ---
-# IMPORTANT: gradio>=5 is required. Gradio 4.x imports `HfFolder` from
-# huggingface_hub, which was removed in huggingface_hub 1.x -> ImportError.
-gradio>=5
-fastapi>=0.110
-uvicorn>=0.29
-python-dotenv>=1.0
-
-# --- Speech recognition ---
-faster-whisper>=1.0.0
-
-# --- Retrieval (RAG) ---
-sentence-transformers>=2.6
-pandas>=2.0
-numpy>=1.24
-
-# --- Translation ---
-deep-translator>=1.11
-
-# --- Text to speech ---
-gTTS>=2.5
-
-# --- HTTP (Ollama / OSRM / Nominatim) ---
-requests>=2.31
+gradio>=4.44.0
+transformers>=4.45.0
+accelerate>=0.34.0
+torch
+sentence-transformers>=3.0.0
+pandas>=2.0.0
+numpy>=1.24.0
+scikit-learn>=1.3.0
+gTTS>=2.5.0
+soundfile>=0.12.1
+librosa>=0.10.0
+requests>=2.31.0
+python-dotenv>=1.0.0
