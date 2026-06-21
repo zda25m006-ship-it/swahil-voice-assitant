@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>SautiSafari — Map</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  :root{
+    --ocean:#0B3C49; --turq:#1FB6A6; --coral:#FF6B5E;
+    --sand:#F5EFE6; --ink:#0E1B1F; --mist:#5C7480; --line:#E2DDD2;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink)}
+  #map{position:absolute;inset:0}
+
+  /* search bar floats over the map */
+  .bar{position:absolute;z-index:1000;top:14px;left:14px;right:14px;display:flex;gap:8px;flex-wrap:wrap}
+  .field{flex:1 1 200px;display:flex;background:#fff;border-radius:12px;box-shadow:0 4px 16px rgba(11,60,73,.18);overflow:hidden}
+  .field input{flex:1;border:0;padding:13px 14px;font-size:15px;outline:none;background:transparent}
+  .btn{border:0;cursor:pointer;font-weight:600;font-size:14px;padding:0 16px;border-radius:12px;
+       box-shadow:0 4px 16px rgba(11,60,73,.18);transition:transform .08s ease,filter .15s ease}
+  .btn:active{transform:translateY(1px)}
+  .btn-go{background:var(--ocean);color:#fff}
+  .btn-loc{background:#fff;color:var(--ocean);padding:0 14px}
+  .btn-dir{background:var(--turq);color:#04302b}
+  .btn:disabled{filter:grayscale(.6) opacity(.6);cursor:not-allowed}
+
+  /* directions card — the signature element */
+  .card{position:absolute;z-index:1000;left:14px;right:14px;bottom:14px;background:#fff;border-radius:16px;
+        box-shadow:0 8px 30px rgba(11,60,73,.25);max-height:46vh;display:none;flex-direction:column;overflow:hidden}
+  .card.show{display:flex}
+  .card-head{display:flex;align-items:center;gap:14px;padding:14px 16px;border-bottom:1px solid var(--line)}
+  .stat{display:flex;flex-direction:column}
+  .stat .v{font-size:22px;font-weight:700;line-height:1;color:var(--ocean)}
+  .stat .l{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--mist);margin-top:3px}
+  .stat.dur .v{color:var(--coral)}
+  .card-title{flex:1;font-size:14px;color:var(--mist);text-align:right;line-height:1.3}
+  .card-title b{display:block;color:var(--ink);font-size:15px}
+  .close{border:0;background:var(--sand);width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:16px;color:var(--ink)}
+  .steps{overflow:auto;padding:6px 0}
+  .step{display:flex;gap:12px;padding:10px 16px;font-size:14px;align-items:flex-start}
+  .step:not(:last-child){border-bottom:1px solid #f1ece3}
+  .step .n{flex:none;width:22px;height:22px;border-radius:50%;background:var(--sand);color:var(--ocean);
+           font-size:12px;font-weight:700;display:grid;place-items:center;margin-top:1px}
+
+  .toast{position:absolute;z-index:1100;bottom:18px;left:50%;transform:translateX(-50%);
+         background:var(--ink);color:#fff;padding:10px 16px;border-radius:10px;font-size:14px;
+         opacity:0;pointer-events:none;transition:opacity .25s ease;max-width:90%}
+  .toast.show{opacity:1}
+  .pulse{border-radius:50%;background:rgba(31,182,166,.25)}
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div class="bar">
+  <button class="btn btn-loc" id="locate" title="Find my location">📍 Locate me</button>
+  <div class="field">
+    <input id="dest" type="text" placeholder="Search a place in Zanzibar…" autocomplete="off" />
+  </div>
+  <button class="btn btn-go" id="search">Search</button>
+  <button class="btn btn-dir" id="directions" disabled>Directions</button>
+</div>
+
+<div class="card" id="card">
+  <div class="card-head">
+    <div class="stat"><span class="v" id="dist">–</span><span class="l">distance</span></div>
+    <div class="stat dur"><span class="v" id="dur">–</span><span class="l">by road</span></div>
+    <div class="card-title"><span>to</span><b id="destname">destination</b></div>
+    <button class="close" id="close">✕</button>
+  </div>
+  <div class="steps" id="steps"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const params = new URLSearchParams(location.search);
+const CENTER = [-6.1659, 39.2026];           // Stone Town
+const map = L.map('map', {zoomControl:true}).setView(CENTER, 12);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom:19, attribution:'© OpenStreetMap contributors'
+}).addTo(map);
+
+let userPos = null, userMarker = null, accCircle = null;
+let destPos = null, destMarker = null, routeLine = null;
+
+const $ = id => document.getElementById(id);
+function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show');
+  clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove('show'),2600); }
+
+// ---- Locate the user (live) ------------------------------------------------
+function setUser(lat, lon, acc){
+  userPos = [lat, lon];
+  if(!userMarker){
+    userMarker = L.circleMarker(userPos, {radius:8,color:'#fff',weight:3,
+      fillColor:'#1FB6A6',fillOpacity:1}).addTo(map).bindPopup('You are here');
+  } else { userMarker.setLatLng(userPos); }
+  if(acc){
+    if(!accCircle){ accCircle = L.circle(userPos,{radius:acc,className:'pulse',stroke:false}).addTo(map); }
+    else { accCircle.setLatLng(userPos).setRadius(acc); }
+  }
+  $('directions').disabled = !(userPos && destPos);
+}
+
+$('locate').onclick = () => {
+  if(!navigator.geolocation){ toast('Location is not available on this device'); return; }
+  toast('Finding your location…');
+  navigator.geolocation.watchPosition(
+    p => { setUser(p.coords.latitude, p.coords.longitude, p.coords.accuracy);
+           map.setView(userPos, 15); },
+    () => toast('Could not get your location. Allow location access and retry.'),
+    {enableHighAccuracy:true, maximumAge:10000, timeout:15000}
+  );
+};
+
+// ---- Search a destination (Nominatim, Zanzibar-biased) ---------------------
+async function searchPlace(q){
+  if(!q || !q.trim()) return;
+  toast('Searching “'+q+'”…');
+  const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1'
+            + '&countrycodes=tz&viewbox=38.9,-5.6,40.0,-6.6'
+            + '&q=' + encodeURIComponent(q);
+  try{
+    const r = await fetch(url, {headers:{'Accept':'application/json'}});
+    const data = await r.json();
+    if(!data.length){ toast('No place found for “'+q+'”. Try another name.'); return; }
+    const d = data[0];
+    destPos = [parseFloat(d.lat), parseFloat(d.lon)];
+    if(destMarker) destMarker.remove();
+    destMarker = L.marker(destPos).addTo(map)
+      .bindPopup(d.display_name.split(',')[0]).openPopup();
+    $('destname').textContent = d.display_name.split(',').slice(0,2).join(', ');
+    map.setView(destPos, 14);
+    $('directions').disabled = !(userPos && destPos);
+  }catch(e){ toast('Search failed — check your connection.'); }
+}
+
+$('search').onclick = () => searchPlace($('dest').value);
+$('dest').addEventListener('keydown', e => { if(e.key==='Enter') searchPlace($('dest').value); });
+
+// ---- Directions (OSRM driving route + turn-by-turn) ------------------------
+function readableStep(s){
+  const m = s.maneuver || {};
+  const type = (m.type || 'continue').replace(/_/g,' ');
+  const mod  = m.modifier ? ' '+m.modifier : '';
+  const road = s.name ? ' onto '+s.name : '';
+  return (type + mod + road).replace(/\s+/g,' ').trim()
+         .replace(/^./, c => c.toUpperCase());
+}
+
+$('directions').onclick = async () => {
+  if(!userPos || !destPos){ toast('Set your location and a destination first.'); return; }
+  toast('Calculating route…');
+  const u = userPos[1]+','+userPos[0], d = destPos[1]+','+destPos[0];
+  const url = 'https://router.project-osrm.org/route/v1/driving/'+u+';'+d
+            + '?overview=full&geometries=geojson&steps=true';
+  try{
+    const r = await fetch(url); const data = await r.json();
+    if(data.code!=='Ok' || !data.routes.length){ toast('No road route found between these points.'); return; }
+    const rt = data.routes[0];
+    if(routeLine) routeLine.remove();
+    const coords = rt.geometry.coordinates.map(c => [c[1], c[0]]);
+    routeLine = L.polyline(coords, {color:'#FF6B5E', weight:6, opacity:.85}).addTo(map);
+    map.fitBounds(routeLine.getBounds(), {padding:[60,60]});
+
+    $('dist').textContent = (rt.distance/1000).toFixed(1)+' km';
+    $('dur').textContent  = Math.round(rt.duration/60)+' min';
+
+    const steps = $('steps'); steps.innerHTML = '';
+    let n = 1;
+    rt.legs[0].steps.forEach(s => {
+      const txt = readableStep(s);
+      if(!txt || /^Continue$/i.test(txt)) return;
+      const row = document.createElement('div'); row.className='step';
+      row.innerHTML = '<div class="n">'+(n++)+'</div><div>'+txt+'</div>';
+      steps.appendChild(row);
+    });
+    $('card').classList.add('show');
+  }catch(e){ toast('Routing failed — check your connection.'); }
+};
+
+$('close').onclick = () => $('card').classList.remove('show');
+
+// ---- Deep links from the assistant (?dest=…  &  ?lat=&lon=) -----------------
+if(params.get('lat') && params.get('lon')){
+  setUser(parseFloat(params.get('lat')), parseFloat(params.get('lon')));
+}
+if(params.get('dest')){
+  $('dest').value = params.get('dest');
+  searchPlace(params.get('dest'));
+}
+</script>
+</body>
+</html>
